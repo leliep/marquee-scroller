@@ -117,6 +117,11 @@ String BitcoinApiClient::getCode() {
 String BitcoinApiClient::getRate() {
   String rate = bpiData.rate;
   rate.remove(rate.indexOf(".") + 3);
+  //
+  // thousands and decimals to german format
+  rate.replace(".", "#");
+  rate.replace(",", ".");
+  rate.replace("#", ",");
   return rate;
 }
 
@@ -127,4 +132,3 @@ String BitcoinApiClient::getDescription() {
 float BitcoinApiClient::getRateFloat() {
   return bpiData.rate_float;
 }
-

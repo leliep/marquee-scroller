@@ -36,7 +36,8 @@ void OpenWeatherMapClient::updateWeatherApiKey(String ApiKey) {
 
 void OpenWeatherMapClient::updateWeather() {
   WiFiClient weatherClient;
-  String apiGetData = "GET /data/2.5/group?id=" + myCityIDs + "&units=" + units + "&cnt=1&APPID=" + myApiKey + " HTTP/1.1";
+//  String apiGetData = "GET /data/2.5/group?id=" + myCityIDs + "&units=" + units + "&cnt=1&APPID=" + myApiKey + " HTTP/1.1";
+  String apiGetData = "GET /data/2.5/group?id=" + myCityIDs + "&units=" + units + "&cnt=1&lang=de&APPID=" + myApiKey + " HTTP/1.1";
 
   Serial.println("Getting Weather Data");
   Serial.println(apiGetData);
@@ -233,7 +234,7 @@ String OpenWeatherMapClient::getDirectionRounded(int index)
 String OpenWeatherMapClient::getDirectionText(int index) {
   int num = getDirectionRounded(index).toInt();
   int val = floor((num / 22.5) + 0.5);
-  String arr[] = {"N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"};
+  String arr[] = {"N", "NNO", "NO", "ONO", "O", "OSO", "SO", "SSO", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"};
   return arr[(val % 16)];
 }
 
@@ -264,6 +265,14 @@ String OpenWeatherMapClient::getLow(int index)
   return weathers[index].low;
 }
 
+String OpenWeatherMapClient::getHighRounded(int index) {
+  return roundValue(getHigh(index));
+}
+
+String OpenWeatherMapClient::getLowRounded(int index) {
+  return roundValue(getLow(index));
+}
+
 String OpenWeatherMapClient::getIcon(int index) {
   return weathers[index].icon;
 }
@@ -288,25 +297,25 @@ String OpenWeatherMapClient::getWeekDay(int index, float offset) {
     day = (((epoc + (3600 * (int)offset)) / 86400) + 4) % 7;
     switch (day) {
       case 0:
-        rtnValue = "Sunday";
+        rtnValue = "Sonntag";
         break;
       case 1:
-        rtnValue = "Monday";
+        rtnValue = "Montag";
         break;
       case 2:
-        rtnValue = "Tuesday";
+        rtnValue = "Dienstag";
         break;
       case 3:
-        rtnValue = "Wednesday";
+        rtnValue = "Mittwoch";
         break;
       case 4:
-        rtnValue = "Thursday";
+        rtnValue = "Donnerstag";
         break;
       case 5:
-        rtnValue = "Friday";
+        rtnValue = "Freitag";
         break;
       case 6:
-        rtnValue = "Saturday";
+        rtnValue = "Samstag";
         break;
       default:
         break;

@@ -27,7 +27,10 @@
 
 #include "Settings.h"
 
-#define VERSION "2.16"
+#define VERSION "2.16-k-pl"
+
+// c: with restart function -pl
+
 
 #define HOSTNAME "CLOCK-"
 #define CONFIG "/conf.txt"
@@ -51,17 +54,18 @@ int8_t getWifiQuality();
 // LED Settings
 const int offset = 1;
 int refresh = 0;
-String message = "hello";
+String message = "hallo";
 int spacer = 1;  // dots between letters
 int width = 5 + spacer; // The font width is 5 pixels + spacer
 Max72xxPanel matrix = Max72xxPanel(pinCS, numberOfHorizontalDisplays, numberOfVerticalDisplays);
-String Wide_Clock_Style = "1";  //1="hh:mm Temp", 2="hh:mm:ss", 3="hh:mm"
+String Wide_Clock_Style = "2";  //1="hh:mm Temp", 2="hh:mm:ss", 3="hh:mm"
 float UtcOffset;  //time zone offsets that correspond with the CityID above (offset from GMT)
 
 // Time
 TimeDB TimeDB("");
 String lastMinute = "xx";
 int displayRefreshCount = 1;
+int systemRestartCount = 1440;
 long lastEpoch = 0;
 long firstEpoch = 0;
 long displayOffEpoch = 0;
@@ -108,7 +112,7 @@ static const char WEB_ACTIONS2[] PROGMEM = "<a class='w3-bar-item w3-button' hre
 
 static const char WEB_ACTION3[] PROGMEM = "</a><a class='w3-bar-item w3-button' href='/systemreset' onclick='return confirm(\"Do you want to reset to default weather settings?\")'><i class='fas fa-undo'></i> Reset Settings</a>"
                        "<a class='w3-bar-item w3-button' href='/forgetwifi' onclick='return confirm(\"Do you want to forget to WiFi connection?\")'><i class='fas fa-wifi'></i> Forget WiFi</a>"
-                       "<a class='w3-bar-item w3-button' href='/restart'><i class='fas fa-sync'></i> Restart</a>"
+                       "<a class='w3-bar-item w3-button' href='/restart' onclick='return confirm(\"Do you want to restart the ESP?\")'><i class='fas fa-wrench'></i> Restart ESP</a>"
                        "<a class='w3-bar-item w3-button' href='/update'><i class='fas fa-wrench'></i> Firmware Update</a>"
                        "<a class='w3-bar-item w3-button' href='https://github.com/Qrome/marquee-scroller' target='_blank'><i class='fas fa-question-circle'></i> About</a>";
 
@@ -127,7 +131,8 @@ static const char CHANGE_FORM1[] PROGMEM = "<form class='w3-container' action='/
                       "<p><input name='showhumidity' class='w3-check w3-margin-top' type='checkbox' %HUMIDITY_CHECKED%> Display Humidity</p>"
                       "<p><input name='showwind' class='w3-check w3-margin-top' type='checkbox' %WIND_CHECKED%> Display Wind</p>"
                       "<p><input name='showpressure' class='w3-check w3-margin-top' type='checkbox' %PRESSURE_CHECKED%> Display Barometric Pressure</p>"
-                      "<p><input name='is24hour' class='w3-check w3-margin-top' type='checkbox' %IS_24HOUR_CHECKED%> Use 24 Hour Clock (military time)</p>";
+                      "<p><input name='is24hour' class='w3-check w3-margin-top' type='checkbox' %IS_24HOUR_CHECKED%> Use 24 Hour Clock (military time)</p>"
+                      "<p><input name='hours2digits' class='w3-check w3-margin-top' type='checkbox' %HOURS2DIGITS%> Use 2 Digits Hours (only 24 hour clock)</p>";
 
 static const char CHANGE_FORM2[] PROGMEM = "<p><input name='isPM' class='w3-check w3-margin-top' type='checkbox' %IS_PM_CHECKED%> Show PM indicator (only 12h format)</p>"
                       "<p><input name='flashseconds' class='w3-check w3-margin-top' type='checkbox' %FLASHSECONDS%> Flash : in the time</p>"
@@ -137,7 +142,8 @@ static const char CHANGE_FORM2[] PROGMEM = "<p><input name='isPM' class='w3-chec
                       "<p>Display Brightness <input class='w3-border w3-margin-bottom' name='ledintensity' type='number' min='0' max='15' value='%INTENSITYOPTIONS%'></p>"
                       "<p>Display Scroll Speed <select class='w3-option w3-padding' name='scrollspeed'>%SCROLLOPTIONS%</select></p>"
                       "<p>Minutes Between Refresh Data <select class='w3-option w3-padding' name='refresh'>%OPTIONS%</select></p>"
-                      "<p>Minutes Between Scrolling Data <input class='w3-border w3-margin-bottom' name='refreshDisplay' type='number' min='1' max='10' value='%REFRESH_DISPLAY%'></p>";
+                      "<p>Minutes Between Scrolling Data <input class='w3-border w3-margin-bottom' name='refreshDisplay' type='number' min='1' max='10' value='%REFRESH_DISPLAY%'></p>"
+                      "<p>Minutes Between System Restarts (0 = never, max: 1441) <input class='w3-border w3-margin-bottom' name='restartSystem' type='number' min='0' max='1441' value='%REBOOT_INTERVAL%'></p>";
 
 static const char CHANGE_FORM3[] PROGMEM = "<hr><p><input name='isBasicAuth' class='w3-check w3-margin-top' type='checkbox' %IS_BASICAUTH_CHECKED%> Use Security Credentials for Configuration Changes</p>"
                       "<p><label>Marquee User ID (for this web interface)</label><input class='w3-input w3-border w3-margin-bottom' type='text' name='userid' value='%USERID%' maxlength='20'></p>"
@@ -233,7 +239,7 @@ void setup() {
 
   Serial.println("matrix created");
   matrix.fillScreen(LOW); // show black
-  centerPrint("hello");
+  centerPrint("hallo");
 
   tone(BUZZER_PIN, 415, 500);
   delay(500 * 1.3);
@@ -316,7 +322,7 @@ void setup() {
     server.on("/savepihole", handleSavePihole);
     server.on("/systemreset", handleSystemReset);
     server.on("/forgetwifi", handleForgetWifi);
-    server.on("/restart", restartEsp);
+    server.on("/restart", handleRestart);
     server.on("/configure", handleConfigure);
     server.on("/configurebitcoin", handleBitcoinConfigure);
     server.on("/configurewideclock", handleWideClockConfigure);
@@ -337,6 +343,9 @@ void setup() {
     Serial.println("Web Interface is Disabled");
     scrollMessage("Web Interface is Disabled");
   }
+
+  // initialize restart counter
+  systemRestartCount = minutesBetweenRestarts;
 
   flashLED(1, 500);
 }
@@ -360,6 +369,9 @@ void loop() {
     }
 
     if (displayOn) {
+      // (re)set the intensity -pl
+      matrix.setIntensity(displayIntensity);
+
       matrix.shutdown(false);
     }
     matrix.fillScreen(LOW); // show black
@@ -374,6 +386,15 @@ void loop() {
       }
     }
 
+    systemRestartCount --;
+    // Check to see if we need to restart the system
+    if (systemRestartCount <= 0) {
+      systemRestartCount = minutesBetweenRestarts;
+      if (minutesBetweenRestarts > 0) {
+        ESP.restart();
+      }
+    }
+
     displayRefreshCount --;
     // Check to see if we need to Scroll some Data
     if (displayRefreshCount <= 0) {
@@ -385,31 +406,46 @@ void loop() {
       msg += " ";
 
       if (SHOW_DATE) {
-        msg += TimeDB.getDayName() + ", ";
-        msg += TimeDB.getMonthName() + " " + day() + "  ";
+//        msg += TimeDB.getDayName() + ", ";
+        msg += TimeDB.getDayName() + ", " + day() + ". ";
+//        msg += TimeDB.getMonthName() + " " + day() + "  ";
+        msg += TimeDB.getMonthName() + ", ";
       }
-      if (SHOW_CITY) {
-        msg += weatherClient.getCity(0) + "  ";
-      }
-      msg += temperature + getTempSymbol() + "  ";
+//      if (SHOW_CITY) {
+//        msg += weatherClient.getCity(0) + "  ";
+//      }
+//      msg += temperature + + " " + getTempSymbol() + "  ";
 
+      msg += temperature + " " + getTempSymbol() + "  ";
+      if (SHOW_CITY) {
+        msg += "in " + weatherClient.getCity(0) + "  ";
+      }
+
+      
       //show high/low temperature
       if (SHOW_HIGHLOW) {
-        msg += "High/Low:" + weatherClient.getHigh(0) + "/" + weatherClient.getLow(0) + " " + getTempSymbol() + "  ";
+        msg += "Min/Max: " + weatherClient.getLowRounded(0) + " / " + weatherClient.getHighRounded(0) + " " + getTempSymbol() + "  ";
+//        msg += "Max/Min: " + weatherClient.getHighRounded(0) + " / " + weatherClient.getLowRounded(0) + " " + getTempSymbol() + "  ";
+//        msg += "High/Low:" + weatherClient.getHigh(0) + "/" + weatherClient.getLow(0) + " " + getTempSymbol() + "  ";
       }
       
       if (SHOW_CONDITION) {
-        msg += description + "  ";
+        String desc = newsClient.cleanText(description);
+        desc.toUpperCase();
+        msg += desc + "  ";
       }
       if (SHOW_HUMIDITY) {
-        msg += "Humidity:" + weatherClient.getHumidityRounded(0) + "%  ";
+//        msg += "Humidity:" + weatherClient.getHumidityRounded(0) + "%  ";
+        msg += "Feuchte: " + weatherClient.getHumidityRounded(0) + " %  ";
       }
       if (SHOW_WIND) {
-        msg += "Wind: " + weatherClient.getDirectionText(0) + " @ " + weatherClient.getWindRounded(0) + " " + getSpeedSymbol() + "  ";
+//        msg += "Wind: " + weatherClient.getDirectionText(0) + " @ " + weatherClient.getWindRounded(0) + " " + getSpeedSymbol() + "  ";
+        msg += "Wind: " + weatherClient.getDirectionText(0) + " " + weatherClient.getWindRounded(0) + " " + getSpeedSymbol() + "  ";
       }
       //line to show barometric pressure
       if (SHOW_PRESSURE) {
-        msg += "Pressure:" + weatherClient.getPressure(0) + getPressureSymbol() + "  ";
+//        msg += "Pressure:" + weatherClient.getPressure(0) + getPressureSymbol() + "  ";
+        msg += "Luftdruck: " + weatherClient.getPressure(0) + " " + getPressureSymbol() + "  ";
       }
      
       msg += marqueeMessage + " ";
@@ -442,7 +478,6 @@ void loop() {
   }
 
   String currentTime = hourMinutes(false);
-
   if (numberOfHorizontalDisplays >= 8) {
     if (Wide_Clock_Style == "1") {
       // On Wide Display -- show the current temperature as well
@@ -451,7 +486,7 @@ void loop() {
       if (currentTemp.length() >= 3) {
         timeSpacer = " ";
       }
-      currentTime += timeSpacer + currentTemp + getTempSymbol();
+      currentTime += timeSpacer + currentTemp + " "+ getTempSymbol();
     }
     if (Wide_Clock_Style == "2") {
       currentTime += secondsIndicator(false) + TimeDB.zeroPad(second());
@@ -474,7 +509,11 @@ void loop() {
 
 String hourMinutes(boolean isRefresh) {
   if (IS_24HOUR) {
-    return hour() + secondsIndicator(isRefresh) + TimeDB.zeroPad(minute());
+    if (HOURS2DIGITS) {
+      return TimeDB.zeroPad(hour()) + secondsIndicator(isRefresh) + TimeDB.zeroPad(minute());    
+    } else {
+      return hour() + secondsIndicator(isRefresh) + TimeDB.zeroPad(minute());
+    }
   } else {
     return hourFormat12() + secondsIndicator(isRefresh) + TimeDB.zeroPad(minute());
   }
@@ -578,6 +617,7 @@ void handleLocations() {
   CityIDs[0] = server.arg("city1").toInt();
   flashOnSeconds = server.hasArg("flashseconds");
   IS_24HOUR = server.hasArg("is24hour");
+  HOURS2DIGITS = server.hasArg("hours2digits");
   IS_PM = server.hasArg("isPM");
   SHOW_DATE = server.hasArg("showdate");
   SHOW_CITY = server.hasArg("showcity");
@@ -593,6 +633,7 @@ void handleLocations() {
   displayIntensity = server.arg("ledintensity").toInt();
   minutesBetweenDataRefresh = server.arg("refresh").toInt();
   minutesBetweenScrolling = server.arg("refreshDisplay").toInt();
+  minutesBetweenRestarts = server.arg("restartSystem").toInt();
   displayScrollSpeed = server.arg("scrollspeed").toInt();
   IS_BASIC_AUTH = server.hasArg("isBasicAuth");
   String temp = server.arg("userid");
@@ -629,8 +670,7 @@ void handleForgetWifi() {
   ESP.restart();
 }
 
-void restartEsp() {
-  redirectHome();
+void handleRestart() {
   ESP.restart();
 }
 
@@ -860,6 +900,11 @@ void handleConfigure() {
   }
   form.replace("%HIGHLOW_CHECKED%", isHighlowChecked);
 
+  String hours2digits = "";
+  if (HOURS2DIGITS) {
+    hours2digits = "checked='checked'";
+  }
+  form.replace("%HOURS2DIGITS%", hours2digits);
   
   String is24hourChecked = "";
   if (IS_24HOUR) {
@@ -897,6 +942,7 @@ void handleConfigure() {
   options.replace(">" + minutes + "<", " selected>" + minutes + "<");
   form.replace("%OPTIONS%", options);
   form.replace("%REFRESH_DISPLAY%", String(minutesBetweenScrolling));
+  form.replace("%REBOOT_INTERVAL%", String(minutesBetweenRestarts));
 
   server.sendContent(form); //Send another chunk of the form
 
@@ -1222,7 +1268,8 @@ void flashLED(int number, int delayTime) {
 String getTempSymbol() {
   String rtnValue = "F";
   if (IS_METRIC) {
-    rtnValue = "C";
+//    rtnValue = "C";
+    rtnValue = "Grad";
   }
   return rtnValue;
 }
@@ -1230,7 +1277,7 @@ String getTempSymbol() {
 String getSpeedSymbol() {
   String rtnValue = "mph";
   if (IS_METRIC) {
-    rtnValue = "kph";
+    rtnValue = "km/h";
   }
   return rtnValue;
 }
@@ -1240,7 +1287,7 @@ String getPressureSymbol()
   String rtnValue = "";
   if (IS_METRIC)
   {
-    rtnValue = "mb";
+    rtnValue = "hPa";
   }
   return rtnValue;
 }
@@ -1347,11 +1394,13 @@ String writeCityIds() {
     f.println("newsApiKey=" + NEWS_API_KEY);
     f.println("isFlash=" + String(flashOnSeconds));
     f.println("is24hour=" + String(IS_24HOUR));
+    f.println("hours2digits=" + String(HOURS2DIGITS));
     f.println("isPM=" + String(IS_PM));
     f.println("wideclockformat=" + Wide_Clock_Style);
     f.println("isMetric=" + String(IS_METRIC));
     f.println("refreshRate=" + String(minutesBetweenDataRefresh));
     f.println("minutesBetweenScrolling=" + String(minutesBetweenScrolling));
+    f.println("minutesBetweenRestarts=" + String(minutesBetweenRestarts));
     f.println("isOctoPrint=" + String(OCTOPRINT_ENABLED));
     f.println("isOctoProgress=" + String(OCTOPRINT_PROGRESS));
     f.println("octoKey=" + OctoPrintApiKey);
@@ -1427,6 +1476,10 @@ void readCityIds() {
       IS_24HOUR = line.substring(line.lastIndexOf("is24hour=") + 9).toInt();
       Serial.println("IS_24HOUR=" + String(IS_24HOUR));
     }
+    if (line.indexOf("hours2digits=") >= 0) {
+      HOURS2DIGITS = line.substring(line.lastIndexOf("hours2digits=") + 13).toInt();
+      Serial.println("HOURS2DIGITS=" + String(HOURS2DIGITS));
+    }
     if (line.indexOf("isPM=") >= 0) {
       IS_PM = line.substring(line.lastIndexOf("isPM=") + 5).toInt();
       Serial.println("IS_PM=" + String(IS_PM));
@@ -1451,6 +1504,15 @@ void readCityIds() {
       displayRefreshCount = 1;
       minutesBetweenScrolling = line.substring(line.lastIndexOf("minutesBetweenScrolling=") + 24).toInt();
       Serial.println("minutesBetweenScrolling=" + String(minutesBetweenScrolling));
+    }
+    if (line.indexOf("minutesBetweenRestarts=") >= 0) {
+      minutesBetweenRestarts = line.substring(line.lastIndexOf("minutesBetweenRestarts=") + 23).toInt();
+      if ((minutesBetweenRestarts > 0) && (minutesBetweenRestarts < 4)) {
+        // too short a restart time leads to reboot loops, so avoid this
+        minutesBetweenRestarts = 4;
+      }
+      systemRestartCount = minutesBetweenRestarts;
+      Serial.println("minutesBetweenRestarts=" + String(minutesBetweenRestarts));
     }
     if (line.indexOf("marqueeMessage=") >= 0) {
       marqueeMessage = line.substring(line.lastIndexOf("marqueeMessage=") + 15);

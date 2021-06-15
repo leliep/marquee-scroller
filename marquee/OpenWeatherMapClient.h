@@ -85,6 +85,8 @@ public:
   String getPressure(int index);
   String getHigh(int index);
   String getLow(int index);
+  String getHighRounded(int index);
+  String getLowRounded(int index);
   String getWeatherId(int index);
   String getDescription(int index);
   String getIcon(int index);
